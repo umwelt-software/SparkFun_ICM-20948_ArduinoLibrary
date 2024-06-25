@@ -1,0 +1,9 @@
+idf_component_register(
+        SRCS
+            "src/ICM_20948.cpp"
+            "src/util/ICM_20948_C.c"
+        INCLUDE_DIRS
+            "src"
+        REQUIRES
+            driver
+)
