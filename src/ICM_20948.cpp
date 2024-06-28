@@ -3,9 +3,25 @@
 #include "icm20948/util/ICM_20948_REGISTERS.h"
 #include "icm20948/util/AK09916_REGISTERS.h"
 
+#ifdef __XTENSA__
+#include "esp_system.h"
+#include "esp_log.h"
+#include "string.h"
+#endif
+
+#ifndef __XTENSA__
+ICM_20948_Status_e begin(uint8_t csPin, SPIClass &spiPort = SPI, uint32_t SPIFreq = ICM_20948_SPI_DEFAULT_FREQ);
+#else
+ICM_20948_Status_e begin(spi_device_handle_t* spi_device);
+#define F
+#define __FlashStringHelper char
+#endif
+
 // Forward Declarations
+#ifndef __XTENSA__
 ICM_20948_Status_e ICM_20948_write_I2C(uint8_t reg, uint8_t *data, uint32_t len, void *user);
 ICM_20948_Status_e ICM_20948_read_I2C(uint8_t reg, uint8_t *buff, uint32_t len, void *user);
+#endif
 ICM_20948_Status_e ICM_20948_write_SPI(uint8_t reg, uint8_t *buff, uint32_t len, void *user);
 ICM_20948_Status_e ICM_20948_read_SPI(uint8_t reg, uint8_t *buff, uint32_t len, void *user);
 
@@ -15,16 +31,7 @@ ICM_20948::ICM_20948()
   status = ICM_20948_init_struct(&_device);
 }
 
-void ICM_20948::enableDebugging(Stream &debugPort)
-{
-  _debugSerial = &debugPort; //Grab which port the user wants us to use for debugging
-  _printDebug = true;        //Should we print the commands we send? Good for debugging
-}
-void ICM_20948::disableDebugging(void)
-{
-  _printDebug = false; //Turn off extra print statements
-}
-
+#ifndef __XTENSA__
 // Debug Printing: based on gfvalvo's flash string helper code:
 // https://forum.arduino.cc/index.php?topic=533118.msg3634809#msg3634809
 
@@ -67,7 +74,11 @@ void ICM_20948::doDebugPrint(char (*funct)(const char *), const char *string, bo
     _debugSerial->println();
   }
 }
-
+void ICM_20948::enableDebugging(Stream &debugPort)
+{
+  _debugSerial = &debugPort; //Grab which port the user wants us to use for debugging
+  _printDebug = true;        //Should we print the commands we send? Good for debugging
+}
 void ICM_20948::debugPrintf(int i)
 {
   if (_printDebug == true)
@@ -78,6 +89,45 @@ void ICM_20948::debugPrintf(float f)
 {
   if (_printDebug == true)
     _debugSerial->print(f);
+}
+void ICM_20948::debugPrintln(const char *line)
+{
+    doDebugPrint([](const char *ptr) { return *ptr; }, line, true);
+}
+#else
+void ICM_20948::enableDebugging(char* tag)
+{
+    _TAG = tag;
+    _printDebug = true;        //Should we print the commands we send? Good for debugging
+}
+void ICM_20948::debugPrintf(int i)
+{
+    if (_printDebug)
+        printf("%d", i);
+}
+
+void ICM_20948::debugPrintf(float f)
+{
+    if (_printDebug)
+        printf("%f", f);
+}
+
+void ICM_20948::debugPrint(const char *line)
+{
+    if (_printDebug)
+        printf("%s", line);
+}
+
+void ICM_20948::debugPrintln(const char *line)
+{
+    if (_printDebug)
+        printf("%s\n\r", line);
+}
+#endif
+
+void ICM_20948::disableDebugging(void)
+{
+  _printDebug = false; //Turn off extra print statements
 }
 
 void ICM_20948::debugPrintStatus(ICM_20948_Status_e stat)
@@ -692,6 +742,11 @@ ICM_20948_Status_e ICM_20948::setFullScale(uint8_t sensor_id_bm, ICM_20948_fss_t
 {
   status = ICM_20948_set_full_scale(&_device, (ICM_20948_InternalSensorID_bm)sensor_id_bm, fss);
   return status;
+}
+
+void ICM_20948::delay(int ms)
+{
+    vTaskDelay(pdMS_TO_TICKS(ms));
 }
 
 ICM_20948_Status_e ICM_20948::setDLPFcfg(uint8_t sensor_id_bm, ICM_20948_dlpcfg_t cfg)
@@ -1703,6 +1758,7 @@ ICM_20948_Status_e ICM_20948::initializeDMP(void)
   return worstResult;
 }
 
+#ifndef __XTENSA__
 // I2C
 ICM_20948_I2C::ICM_20948_I2C()
 {
@@ -1770,6 +1826,7 @@ ICM_20948_Status_e ICM_20948_I2C::begin(TwoWire &wirePort, bool ad0val, uint8_t 
   }
   return status;
 }
+#endif
 
 ICM_20948_Status_e ICM_20948::startupMagnetometer(bool minimal)
 {
@@ -1909,8 +1966,13 @@ ICM_20948_SPI::ICM_20948_SPI()
 {
 }
 
+#ifndef __XTENSA__
 ICM_20948_Status_e ICM_20948_SPI::begin(uint8_t csPin, SPIClass &spiPort, uint32_t SPIFreq)
+#else
+ICM_20948_Status_e ICM_20948_SPI::begin(spi_device_handle_t* spi_device)
+#endif
 {
+#ifndef __XTENSA__
   if (SPIFreq > 7000000)
     SPIFreq = 7000000; // Limit SPI frequency to 7MHz
 
@@ -1931,11 +1993,13 @@ ICM_20948_Status_e ICM_20948_SPI::begin(uint8_t csPin, SPIClass &spiPort, uint32
   _spi->beginTransaction(_spisettings);
   _spi->transfer(0x00);
   _spi->endTransaction();
+#endif
+    _spi_device = spi_device;
 
-  // Set up the serif
-  _serif.write = ICM_20948_write_SPI;
-  _serif.read = ICM_20948_read_SPI;
-  _serif.user = (void *)this; // refer to yourself in the user field
+    // Set up the serif
+    _serif.write = ICM_20948_write_SPI;
+    _serif.read = ICM_20948_read_SPI;
+    _serif.user = (void *)this; // refer to yourself in the user field
 
   // Link the serif
   _device._serif = &_serif;
@@ -1970,6 +2034,8 @@ ICM_20948_Status_e ICM_20948_SPI::begin(uint8_t csPin, SPIClass &spiPort, uint32
 }
 
 // serif functions for the I2C and SPI classes
+
+#ifndef __XTENSA__
 ICM_20948_Status_e ICM_20948_write_I2C(uint8_t reg, uint8_t *data, uint32_t len, void *user)
 {
   if (user == NULL)
@@ -2039,6 +2105,7 @@ ICM_20948_Status_e ICM_20948_read_I2C(uint8_t reg, uint8_t *buff, uint32_t len, 
   }
   return ICM_20948_Stat_Ok;
 }
+#endif
 
 ICM_20948_Status_e ICM_20948_write_SPI(uint8_t reg, uint8_t *data, uint32_t len, void *user)
 {
@@ -2046,6 +2113,8 @@ ICM_20948_Status_e ICM_20948_write_SPI(uint8_t reg, uint8_t *data, uint32_t len,
   {
     return ICM_20948_Stat_ParamErr;
   }
+
+#ifndef __XTENSA__
   SPIClass *_spi = ((ICM_20948_SPI *)user)->_spi; // Cast user field to ICM_20948_SPI type and extract the SPI interface pointer
   uint8_t cs = ((ICM_20948_SPI *)user)->_cs;
   SPISettings spisettings = ((ICM_20948_SPI *)user)->_spisettings;
@@ -2071,16 +2140,43 @@ ICM_20948_Status_e ICM_20948_write_SPI(uint8_t reg, uint8_t *data, uint32_t len,
   // delayMicroseconds(5);
   digitalWrite(cs, HIGH);
   _spi->endTransaction();
+#else
+    spi_device_handle_t spi_device = *((ICM_20948_SPI *)user)->_spi_device;
+
+    auto* tx_buff = static_cast<uint8_t *>(heap_caps_malloc((len + 4), MALLOC_CAP_DMA));
+
+    if (!tx_buff) {
+        ESP_LOGE("ICM20948", "malloc error");
+        return ICM_20948_Stat_Err;
+    }
+
+    tx_buff[0] = (reg & 0x7F);
+
+    memcpy(&tx_buff[1], data, len);
+
+    spi_transaction_t transaction = {
+            .flags = 0,
+            .cmd = 0,
+            .addr = 0,
+            .length = (len + 1) * 8,
+            .rxlength = 0,
+            .tx_buffer = tx_buff,
+            .rx_buffer = nullptr,
+    };
+
+    ESP_ERROR_CHECK(spi_device_transmit(spi_device, &transaction));
+    heap_caps_free(tx_buff);
+#endif
 
   return ICM_20948_Stat_Ok;
 }
 
-ICM_20948_Status_e ICM_20948_read_SPI(uint8_t reg, uint8_t *buff, uint32_t len, void *user)
-{
+ICM_20948_Status_e ICM_20948_read_SPI(uint8_t reg, uint8_t *buff, uint32_t len, void *user) {
   if (user == NULL)
   {
     return ICM_20948_Stat_ParamErr;
   }
+#ifndef __XTENSA__
   SPIClass *_spi = ((ICM_20948_SPI *)user)->_spi;
   uint8_t cs = ((ICM_20948_SPI *)user)->_cs;
   SPISettings spisettings = ((ICM_20948_SPI *)user)->_spisettings;
@@ -2106,8 +2202,44 @@ ICM_20948_Status_e ICM_20948_read_SPI(uint8_t reg, uint8_t *buff, uint32_t len, 
   //   delayMicroseconds(5);
   digitalWrite(cs, HIGH);
   _spi->endTransaction();
+#else
+    spi_device_handle_t spi_device = *((ICM_20948_SPI *)user)->_spi_device;
+
+    auto* tx_buff = static_cast<uint8_t *>(heap_caps_malloc((4 + len), MALLOC_CAP_DMA));
+    auto* rx_buff = static_cast<uint8_t *>(heap_caps_malloc((4 + len), MALLOC_CAP_DMA));
+
+    if (!tx_buff || !rx_buff) {
+        ESP_LOGE("ICM20948", "malloc error");
+        return ICM_20948_Stat_Err;
+    }
+
+    tx_buff[0] = (reg & 0x7F) | 0x80;
+    tx_buff[1] = 0;
+    tx_buff[2] = 0;
+    tx_buff[3] = 0;
+
+    // memset(rx_buff, 0xAB, (len + 4)); // Debug purposes
+
+    spi_transaction_t transaction = {
+            .flags = 0,
+            .cmd = 0,
+            .addr = 0,
+            .length = (len + 1) * 8,
+            .rxlength = (len + 1) * 8,
+            .tx_buffer = tx_buff,
+            .rx_buffer = rx_buff,
+    };
+
+    ESP_ERROR_CHECK(spi_device_transmit(spi_device, &transaction));
+
+    memcpy(buff, rx_buff + 1, len);
+
+    //ESP_LOGI("ICM-SPI", "tx_buff: %d, rx_buff: %d", int(tx_buff), int(rx_buff));
+    //ESP_LOGI("ICM-SPI", "reg: 0x%X, reg_mod: 0x%X, len: %lu, rx_buff: 0x%X 0x%X 0x%X 0x%X", reg, buff[0], len, buff[4], buff[5], buff[6], buff[7]);
+
+    heap_caps_free(tx_buff);
+    heap_caps_free(rx_buff);
+#endif
 
   return ICM_20948_Stat_Ok;
 }
-
-

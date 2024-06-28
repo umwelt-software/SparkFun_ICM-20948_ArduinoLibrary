@@ -10,9 +10,13 @@ A C++ interface to the ICM-20948
 #include "util/ICM_20948_C.h" // The C backbone. ICM_20948_USE_DMP is defined in here.
 #include "util/AK09916_REGISTERS.h"
 
+#ifdef ARDUINO
 #include "Arduino.h" // Arduino support
 #include "Wire.h"
 #include "SPI.h"
+#elifdef __XTENSA__
+#include "driver/spi_master.h"
+#endif
 
 #define ICM_20948_ARD_UNUSED_PIN 0xFF
 
@@ -20,7 +24,11 @@ A C++ interface to the ICM-20948
 class ICM_20948
 {
 private:
+#ifndef __XTENSA__
   Stream *_debugSerial;     //The stream to send debug messages to if enabled
+#else
+    char* _TAG;
+#endif
   bool _printDebug = false; //Flag to print the serial commands we are sending to the Serial port for debug
 
   const uint8_t MAX_MAGNETOMETER_STARTS = 10; // This replaces maxTries
@@ -32,6 +40,7 @@ protected:
   float getGyrDPS(int16_t axis_val);
   float getAccMG(int16_t axis_val);
   float getMagUT(int16_t axis_val);
+  void delay(int ms);
 
 public:
   ICM_20948(); // Constructor
@@ -55,13 +64,18 @@ public:
   void enableDebugging(Stream &debugPort = Serial); //Given a port to print to, enable debug messages.
 #endif
 #else
-  void enableDebugging(Stream &debugPort = Serial); //Given a port to print to, enable debug messages.
+#ifndef __XTENSA__
+    void enableDebugging(Stream &debugPort = Serial); //Given a port to print to, enable debug messages.
+#else
+    void enableDebugging(char* tag); //Given a port to print to, enable debug messages.
+#endif
 #endif
 
   void disableDebugging(void); //Turn off debug statements
 
   void debugPrintStatus(ICM_20948_Status_e stat);
 
+#ifndef __XTENSA__
   // gfvalvo's flash string helper code: https://forum.arduino.cc/index.php?topic=533118.msg3634809#msg3634809
   void debugPrint(const char *);
   void debugPrint(const __FlashStringHelper *);
@@ -71,6 +85,12 @@ public:
 
   void debugPrintf(int i);
   void debugPrintf(float f);
+#else
+    void debugPrintln(const char *line);
+    void debugPrintf(int i);
+    void debugPrintf(float f);
+    void debugPrint(const char *);
+#endif
 
   ICM_20948_AGMT_t agmt;          // Acceleometer, Gyroscope, Magenetometer, and Temperature data
   ICM_20948_AGMT_t getAGMT(void); // Updates the agmt field in the object and also returns a copy directly
@@ -244,12 +264,15 @@ public:
 //class TwoWire; // Commented by PaulZC 21/2/8 - this was causing compilation to fail on the Arduino NANO 33 BLE
 //extern TwoWire Wire; // Commented by PaulZC 21/2/8 - this was causing compilation to fail on the Arduino NANO 33 BLE
 
+#ifndef __XTENSA__
 class ICM_20948_I2C : public ICM_20948
 {
 private:
 protected:
 public:
+#ifndef __XTENSA__
   TwoWire *_i2c;
+#endif
   uint8_t _addr;
   uint8_t _ad0;
   bool _ad0val;
@@ -258,7 +281,9 @@ public:
   ICM_20948_I2C(); // Constructor
 
   virtual ICM_20948_Status_e begin(TwoWire &wirePort = Wire, bool ad0val = true, uint8_t ad0pin = ICM_20948_ARD_UNUSED_PIN);
+    virtual ICM_20948_Status_e begin();
 };
+#endif
 
 // SPI
 #define ICM_20948_SPI_DEFAULT_FREQ 4000000
@@ -274,14 +299,22 @@ class ICM_20948_SPI : public ICM_20948
 private:
 protected:
 public:
+#ifndef __XTENSA__
   SPIClass *_spi;
   SPISettings _spisettings;
+#else
+ spi_device_handle_t* _spi_device;
+#endif
   uint8_t _cs;
   ICM_20948_Serif_t _serif;
 
   ICM_20948_SPI(); // Constructor
 
-  ICM_20948_Status_e begin(uint8_t csPin, SPIClass &spiPort = SPI, uint32_t SPIFreq = ICM_20948_SPI_DEFAULT_FREQ);
+#ifndef __XTENSA__
+    ICM_20948_Status_e begin(uint8_t csPin, SPIClass &spiPort = SPI, uint32_t SPIFreq = ICM_20948_SPI_DEFAULT_FREQ);
+#else
+    ICM_20948_Status_e begin(spi_device_handle_t* spi_device);
+#endif
 };
 
 #endif /* _ICM_20948_H_ */

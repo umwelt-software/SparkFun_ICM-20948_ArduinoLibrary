@@ -1,6 +1,11 @@
 #include "ICM_20948_C.h"
 #include "ICM_20948_REGISTERS.h"
 #include "AK09916_REGISTERS.h"
+#ifdef __XTENSA__
+#include "esp_log.h"
+#include "string.h"
+#include "stdio.h"
+#endif
 
 /*
  * Icm20948 device require a DMP image to be loaded on init
@@ -397,7 +402,7 @@ ICM_20948_Status_e ICM_20948_get_who_am_i(ICM_20948_Device_t *pdev, uint8_t *who
 ICM_20948_Status_e ICM_20948_check_id(ICM_20948_Device_t *pdev)
 {
   ICM_20948_Status_e retval = ICM_20948_Stat_Ok;
-  uint8_t whoami = 0x00;
+  uint8_t whoami = 0xAB;
   retval = ICM_20948_get_who_am_i(pdev, &whoami);
   if (retval != ICM_20948_Stat_Ok)
   {
@@ -405,6 +410,7 @@ ICM_20948_Status_e ICM_20948_check_id(ICM_20948_Device_t *pdev)
   }
   if (whoami != ICM_20948_WHOAMI)
   {
+    ESP_LOGI("ICM20948", "whoami: %x", whoami);
     return ICM_20948_Stat_WrongID;
   }
   return retval;
@@ -1389,28 +1395,41 @@ ICM_20948_Status_e inv_icm20948_firmware_load(ICM_20948_Device_t *pdev, const un
   data = data_start;
   size = size_start;
   memaddr = load_addr;
-  while (size > 0)
-  {
-    //write_size = min(size, INV_MAX_SERIAL_READ); // Read in chunks of INV_MAX_SERIAL_READ
-    if (size <= INV_MAX_SERIAL_READ) // Read in chunks of INV_MAX_SERIAL_READ
-      write_size = size;
-    else
-      write_size = INV_MAX_SERIAL_READ;
-    if ((memaddr & 0xff) + write_size > 0x100)
-    {
-      // Moved across a bank
-      write_size = (memaddr & 0xff) + write_size - 0x100;
-    }
-    result = inv_icm20948_read_mems(pdev, memaddr, write_size, data_cmp);
-    if (result != ICM_20948_Stat_Ok)
-      flag++;                               // Error, DMP not written correctly
+  while (size > 0) {
+      //write_size = min(size, INV_MAX_SERIAL_READ); // Read in chunks of INV_MAX_SERIAL_READ
+      if (size <= INV_MAX_SERIAL_READ) // Read in chunks of INV_MAX_SERIAL_READ
+          write_size = size;
+      else
+          write_size = INV_MAX_SERIAL_READ;
+      if ((memaddr & 0xff) + write_size > 0x100) {
+          // Moved across a bank
+          write_size = (memaddr & 0xff) + write_size - 0x100;
+      }
+      result = inv_icm20948_read_mems(pdev, memaddr, write_size, data_cmp);
+      if (result != ICM_20948_Stat_Ok)
+          flag++;                               // Error, DMP not written correctly
 #ifdef ICM_20948_USE_PROGMEM_FOR_DMP
-    memcpy_P(data_not_pg, data, write_size);  // Suggested by @HyperKokichi in Issue #63
-    if (memcmp(data_cmp, data_not_pg, write_size))
+      memcpy_P(data_not_pg, data, write_size);  // Suggested by @HyperKokichi in Issue #63
+      if (memcmp(data_cmp, data_not_pg, write_size))
 #else
-    if (memcmp(data_cmp, data, write_size)) // Compare the data
+      if (memcmp(data_cmp, data, write_size)) { // Compare the data
 #endif
-      return ICM_20948_Stat_DMPVerifyFail;
+
+          printf("size: %d\n\r", size);
+          printf("write_size: %d\n\r", write_size);
+          printf("data_cmp: ");
+          for (int i = 0; i < write_size; i++) {
+              printf("0x%X ", data_cmp[i]);
+          }
+          printf("\n\r");
+
+          printf("data    : ");
+          for (int i = 0; i < write_size; i++) {
+              printf("0x%X ", data[i]);
+          }
+          printf("\n\r");
+          return ICM_20948_Stat_DMPVerifyFail;
+  }
     data += write_size;
     size -= write_size;
     memaddr += write_size;
